@@ -11,6 +11,8 @@
 
 #include <DirectXMath.h>
 
+#include "FBX2016Loader.h"
+
 //==============================================================================
 // 定義
 //==============================================================================
@@ -24,13 +26,13 @@ const D3D12_INPUT_ELEMENT_DESC INPUT_LAYOUT[] =
 	{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 28, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
 };
 
-// 頂点定義
-struct UserVertex
-{
-	DirectX::XMFLOAT3 pos;		// 頂点座標
-	DirectX::XMFLOAT4 color;	// 頂点カラー
-	DirectX::XMFLOAT2 uv;		// UV座標
-};
+//// 頂点定義
+//struct UserVertex
+//{
+//	DirectX::XMFLOAT3 pos;		// 頂点座標
+//	DirectX::XMFLOAT4 color;	// 頂点カラー
+//	DirectX::XMFLOAT2 uv;		// UV座標
+//};
 
 // コンスタントバッファ
 struct cbMatrix
@@ -94,44 +96,11 @@ LPD3DBLOB					g_pPSBlob;											// ピクセルシェーダブロブ
 ID3D12Resource*				g_pVertexBufferResource;							// 頂点バッファのリソース
 D3D12_VERTEX_BUFFER_VIEW	g_VertexBufferView;									// 頂点バッファビュー
 
-ID3D12Resource*				g_pIndexBufferResource;								// インデックスバッファのリソース
-D3D12_INDEX_BUFFER_VIEW		g_IndexBufferView;									// インデックスバッファビュー
-
 ID3D12Resource*				g_pConstantBufferResource;							// コンスタントバッファリソース
 cbMatrix					g_ConstantBufferData;								// コンスタントバッファの実データ
 D3D12_CPU_DESCRIPTOR_HANDLE	g_hConstantBuffer[CONSTANT_BUFFER_COUNT];			// コンスタントバッファハンドル
 
-
-UserVertex g_cubeVertices[] = {
-	{ DirectX::XMFLOAT3(-1.0f, -1.0f, -1.0f), DirectX::XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f), DirectX::XMFLOAT2(0.0f, 0.0f) },
-	{ DirectX::XMFLOAT3(-1.0f, -1.0f,  1.0f), DirectX::XMFLOAT4(0.0f, 0.0f, 1.0f, 1.0f), DirectX::XMFLOAT2(0.0f, 0.0f) },
-	{ DirectX::XMFLOAT3(-1.0f,  1.0f, -1.0f), DirectX::XMFLOAT4(0.0f, 1.0f, 0.0f, 1.0f), DirectX::XMFLOAT2(0.0f, 0.0f) },
-	{ DirectX::XMFLOAT3(-1.0f,  1.0f,  1.0f), DirectX::XMFLOAT4(0.0f, 1.0f, 1.0f, 1.0f), DirectX::XMFLOAT2(0.0f, 0.0f) },
-	{ DirectX::XMFLOAT3(1.0f, -1.0f, -1.0f), DirectX::XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f), DirectX::XMFLOAT2(0.0f, 0.0f) },
-	{ DirectX::XMFLOAT3(1.0f, -1.0f,  1.0f), DirectX::XMFLOAT4(1.0f, 0.0f, 1.0f, 1.0f), DirectX::XMFLOAT2(0.0f, 0.0f) },
-	{ DirectX::XMFLOAT3(1.0f,  1.0f, -1.0f), DirectX::XMFLOAT4(1.0f, 1.0f, 0.0f, 1.0f), DirectX::XMFLOAT2(0.0f, 0.0f) },
-	{ DirectX::XMFLOAT3(1.0f,  1.0f,  1.0f), DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f), DirectX::XMFLOAT2(0.0f, 0.0f) },
-};
-
-uint16_t g_cubeIndices[] = {
-	0,2,1, // -x
-	1,2,3,
-
-	4,5,6, // +x
-	5,7,6,
-
-	0,1,5, // -y
-	0,5,4,
-
-	2,6,7, // +y
-	2,7,3,
-
-	0,4,6, // -z
-	0,6,2,
-
-	1,3,7, // +z
-	1,7,5,
-};
+VertexDataArray				g_vertexDataArray;									// 頂点データ配列(読み込み保存用)
 
 // DirectX初期化
 bool initDirectX(HWND hWnd)
@@ -481,6 +450,15 @@ bool setupResource()
 
 	// 頂点バッファ作成
 	{
+		// FBXモデル読み込み
+		if(LoadFBXConvertToVertexData("../datas/box.fbx", g_vertexDataArray) == false)
+		{
+			if(showErrorMessage(E_FAIL, TEXT("FBX読み込み失敗")))
+			{
+				return false;
+			}
+		}
+
 		D3D12_HEAP_PROPERTIES heapPropaty;
 		heapPropaty.Type = D3D12_HEAP_TYPE_UPLOAD;
 		heapPropaty.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
@@ -491,7 +469,7 @@ bool setupResource()
 		D3D12_RESOURCE_DESC descResource;
 		descResource.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
 		descResource.Alignment = 0;
-		descResource.Width = ARRAYSIZE(g_cubeVertices) * sizeof(UserVertex);
+		descResource.Width = g_vertexDataArray.size() * sizeof(VertexData);
 		descResource.Height = 1;
 		descResource.DepthOrArraySize = 1;
 		descResource.MipLevels = 1;
@@ -518,7 +496,11 @@ bool setupResource()
 		UINT8* dataBegin;
 		if(SUCCEEDED(g_pVertexBufferResource->Map(0, nullptr, reinterpret_cast<void**>(&dataBegin))))
 		{
-			memcpy(dataBegin, g_cubeVertices, sizeof(g_cubeVertices));
+			VertexData* temp = reinterpret_cast<VertexData*>(dataBegin);
+			for(size_t i = 0; i < g_vertexDataArray.size(); ++i)
+			{
+				temp[i] = g_vertexDataArray[i];
+			}
 			g_pVertexBufferResource->Unmap(0, nullptr);
 		}
 		else
@@ -529,62 +511,8 @@ bool setupResource()
 
 		// 頂点バッファビュー設定
 		g_VertexBufferView.BufferLocation = g_pVertexBufferResource->GetGPUVirtualAddress();
-		g_VertexBufferView.StrideInBytes = sizeof(UserVertex);
-		g_VertexBufferView.SizeInBytes = sizeof(g_cubeVertices);
-	}
-
-	// インデックスバッファ作成
-	{
-		D3D12_HEAP_PROPERTIES heapPropaty;
-		heapPropaty.Type = D3D12_HEAP_TYPE_UPLOAD;
-		heapPropaty.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-		heapPropaty.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-		heapPropaty.CreationNodeMask = 0;
-		heapPropaty.VisibleNodeMask = 0;
-
-		D3D12_RESOURCE_DESC descResource;
-		descResource.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-		descResource.Alignment = 0;
-		descResource.Width = sizeof(g_cubeIndices);
-		descResource.Height = 1;
-		descResource.DepthOrArraySize = 1;
-		descResource.MipLevels = 1;
-		descResource.Format = DXGI_FORMAT_UNKNOWN;
-		descResource.SampleDesc.Count = 1;
-		descResource.SampleDesc.Quality = 0;
-		descResource.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-		descResource.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-		hr = g_pDevice->CreateCommittedResource(
-			&heapPropaty,
-			D3D12_HEAP_FLAG_NONE,
-			&descResource,
-			D3D12_RESOURCE_STATE_GENERIC_READ,
-			nullptr,
-			IID_PPV_ARGS(&g_pIndexBufferResource));
-
-		if(showErrorMessage(hr, TEXT("インデックスバッファ作成失敗")))
-		{
-			return false;
-		}
-
-		// インデックスバッファにインデックス情報をコピーする
-		UINT8* dataBegin;
-		if(SUCCEEDED(g_pIndexBufferResource->Map(0, nullptr, reinterpret_cast<void**>(&dataBegin))))
-		{
-			memcpy(dataBegin, g_cubeIndices, sizeof(g_cubeIndices));
-			g_pIndexBufferResource->Unmap(0, nullptr);
-		}
-		else
-		{
-			showErrorMessage(E_FAIL, TEXT("インデックスバッファのマッピングに失敗"));
-			return false;
-		}
-
-		// インデックスバッファビュー設定
-		g_IndexBufferView.BufferLocation = g_pIndexBufferResource->GetGPUVirtualAddress();
-		g_IndexBufferView.SizeInBytes = sizeof(g_cubeVertices);
-		g_IndexBufferView.Format = DXGI_FORMAT_R16_UINT;
+		g_VertexBufferView.StrideInBytes = sizeof(VertexData);
+		g_VertexBufferView.SizeInBytes = g_vertexDataArray.size() * sizeof(VertexData);
 	}
 
 	// コンスタントバッファ作成
@@ -653,7 +581,6 @@ bool setupResource()
 void cleanupResource()
 {
 	safeRelease(g_pConstantBufferResource);
-	safeRelease(g_pIndexBufferResource);
 	safeRelease(g_pVertexBufferResource);
 }
 #endif
@@ -707,7 +634,7 @@ void Render()
 	using namespace DirectX;
 
 	XMMATRIX view = XMMatrixLookAtLH(
-		XMLoadFloat3(&XMFLOAT3(0, 0, -5)),
+		XMLoadFloat3(&XMFLOAT3(0, 0, -50)),
 		XMLoadFloat3(&XMFLOAT3(0, 0, 0)),
 		XMLoadFloat3(&XMFLOAT3(0, 1, 0)));
 
@@ -724,7 +651,6 @@ void Render()
 
 	XMMATRIX world;
 
-	// 1つ目
 	{
 		world = XMMatrixRotationRollPitchYaw(
 			XMConvertToRadians(rotation.x),
@@ -752,38 +678,9 @@ void Render()
 		// 三角形描画
 		pCommand->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		pCommand->IASetVertexBuffers(0, 1, &g_VertexBufferView);
-		pCommand->IASetIndexBuffer(&g_IndexBufferView);
-		pCommand->DrawIndexedInstanced(36, 1, 0, 0, 0);
+		//pCommand->DrawIndexedInstanced(36, 1, 0, 0, 0);
+		pCommand->DrawInstanced(g_vertexDataArray.size(), g_vertexDataArray.size() / 3, 0, 0);
 	}
-
-#if 0	// 2つ目
-	{
-		world = XMMatrixIdentity();
-
-		g_ConstantBufferData._WVP = XMMatrixTranspose(world * view * proj);
-
-		UINT8* dataBegin;
-		if(SUCCEEDED(g_pConstantBufferResource->Map(0, nullptr, reinterpret_cast<void**>(&dataBegin))))
-		{
-			memcpy(dataBegin, &g_ConstantBufferData, sizeof(g_ConstantBufferData));
-			g_pConstantBufferResource->Unmap(0, nullptr);
-		}
-		else
-		{
-			showErrorMessage(S_FALSE, TEXT("コンスタントバッファのマップに失敗しました"));
-		}
-
-		// コンスタントバッファを設定
-		ID3D12DescriptorHeap* pHeaps[] = { g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV] };
-		pCommand->SetDescriptorHeaps(ARRAYSIZE(pHeaps), pHeaps);
-		pCommand->SetGraphicsRootDescriptorTable(0, g_pDescripterHeapArray[DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]->GetGPUDescriptorHandleForHeapStart());
-
-		// 三角形描画
-		pCommand->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-		pCommand->IASetVertexBuffers(0, 1, &g_VertexBufferView);
-		pCommand->DrawInstanced(3, 1, 0, 0);
-	}
-#endif
 #endif
 
 	// present前の処理
